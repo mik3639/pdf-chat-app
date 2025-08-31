@@ -113,6 +113,12 @@ with app.app_context():
                 if 'drive_file_id' not in col_names:
                     conn.execute(text("ALTER TABLE pdf ADD COLUMN drive_file_id VARCHAR(255)"))
                     print("[DB Migration] Columna drive_file_id agregada a tabla pdf")
+                # Ensure 'last_drive_sync_at' exists on 'folder'
+                result2 = conn.execute(text("PRAGMA table_info(folder)"))
+                folder_cols = [row[1] for row in result2]
+                if 'last_drive_sync_at' not in folder_cols:
+                    conn.execute(text("ALTER TABLE folder ADD COLUMN last_drive_sync_at DATETIME"))
+                    print("[DB Migration] Columna last_drive_sync_at agregada a tabla folder")
     except Exception as e:
         # Log but do not crash the app
         print(f"[DB Migration] Aviso: no se pudo actualizar la columna drive_file_id: {e}")

@@ -65,6 +65,7 @@ class Folder(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     drive_folder_id = db.Column(db.String(255))
+    last_drive_sync_at = db.Column(db.DateTime, nullable=True)
 
     pdfs = db.relationship('PDF', backref='folder', lazy=True, cascade='all, delete-orphan')
 
@@ -78,7 +79,8 @@ class Folder(db.Model):
             'user_id': self.user_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'pdf_count': len(self.pdfs),
-            'drive_folder_id': self.drive_folder_id
+            'drive_folder_id': self.drive_folder_id,
+            'last_drive_sync_at': self.last_drive_sync_at.isoformat() if self.last_drive_sync_at else None,
         }
 
 

@@ -8,6 +8,11 @@ from src.google_drive import (
     list_pdfs_in_folder,
     get_file_metadata,
 )
+from src.routes.pdfs import ensure_upload_directory, extract_text_from_pdf
+from werkzeug.utils import secure_filename
+import os
+import uuid
+from datetime import datetime, timedelta
 
 folders_bp = Blueprint("folders", __name__)
 
@@ -21,7 +26,74 @@ def list_folders():
         user_id = session.get("user_id")
         if not user_id:
             return jsonify({"error": "No autenticado"}), 401
+        user = User.query.get(user_id)
         folders = Folder.query.filter_by(user_id=user_id).all()
+
+        # Auto-sync Drive para carpetas vinculadas (throttle)
+        now = datetime.utcnow()
+        min_interval = timedelta(minutes=3)
+        max_files_per_folder = 5
+
+        for folder in folders:
+            try:
+                if not folder.drive_folder_id:
+                    continue
+                if folder.last_drive_sync_at and (now - folder.last_drive_sync_at) < min_interval:
+                    continue
+                # Mapear existentes por drive_file_id
+                existing_ids = {
+                    p.drive_file_id for p in folder.pdfs if p.drive_file_id
+                }
+                drive_files = list_pdfs_in_folder(user, folder.drive_folder_id) or []
+                imported_count = 0
+                for f in drive_files:
+                    if imported_count >= max_files_per_folder:
+                        break
+                    drive_id = f.get('id')
+                    name = f.get('name') or 'archivo.pdf'
+                    if not drive_id or drive_id in existing_ids:
+                        continue
+
+                    # Descargar y registrar
+                    from src.google_drive import download_file_to_path
+                    original_filename = secure_filename(name)
+                    if not original_filename.lower().endswith('.pdf'):
+                        original_filename = f"{original_filename}.pdf"
+                    unique_filename = f"{uuid.uuid4().hex}.pdf"
+                    upload_path = ensure_upload_directory()
+                    file_path = os.path.join(upload_path, unique_filename)
+
+                    if not download_file_to_path(user, drive_id, file_path):
+                        # Limpieza si falló descarga
+                        if os.path.exists(file_path):
+                            try:
+                                os.remove(file_path)
+                            except OSError:
+                                pass
+                        continue
+
+                    file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
+                    extracted_text = extract_text_from_pdf(file_path)
+                    from src.models.user import PDF
+                    pdf = PDF(
+                        filename=unique_filename,
+                        original_filename=original_filename,
+                        file_path=file_path,
+                        content=extracted_text,
+                        folder_id=folder.id,
+                        file_size=file_size,
+                        drive_file_id=drive_id,
+                    )
+                    db.session.add(pdf)
+                    db.session.commit()
+                    imported_count += 1
+
+                folder.last_drive_sync_at = now
+                db.session.commit()
+            except Exception as sync_err:
+                # No romper listado por fallos de sync
+                print(f"[AutoSync] Carpeta {folder.id} error: {sync_err}")
+
         return jsonify([f.to_dict() for f in folders])
     except Exception as e:
         # Log del error para Render
