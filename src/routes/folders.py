@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, session
+from flask_cors import cross_origin
 from src.models.user import User, Folder, db
 from src.google_drive import create_drive_folder, delete_drive_folder
 
@@ -8,6 +9,7 @@ folders_bp = Blueprint("folders", __name__)
 # Listar carpetas del usuario
 # =========================
 @folders_bp.route("/folders", methods=["GET"])
+@cross_origin(supports_credentials=True)
 def list_folders():
     user_id = session.get("user_id")
     if not user_id:
@@ -18,13 +20,17 @@ def list_folders():
 # =========================
 # Crear carpeta nueva
 # =========================
-@folders_bp.route("/folders", methods=["POST"])
+@folders_bp.route("/folders", methods=["POST", "OPTIONS"])
+@cross_origin(supports_credentials=True)
 def create_folder():
+    # Preflight CORS
+    if request.method == "OPTIONS":
+        return "", 204
     user_id = session.get("user_id")
     if not user_id:
         return jsonify({"error": "No autenticado"}), 401
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     folder_name = data.get("name")
     if not folder_name:
         return jsonify({"error": "Nombre de carpeta requerido"}), 400
@@ -34,14 +40,21 @@ def create_folder():
         return jsonify({"error": "Usuario no encontrado"}), 404
 
     try:
-        drive_id = create_drive_folder(user, folder_name)
-        if not drive_id:
-            return jsonify({"error": "Error al crear carpeta en Google Drive -1"}), 500
+        drive_id = None
+        # Intentar crear en Drive, pero no bloquear si falla
+        try:
+            drive_id = create_drive_folder(user, folder_name)
+        except Exception as drive_err:
+            # Log silencioso; continuamos sin Drive
+            print(f"[Drive] Aviso: no se pudo crear carpeta en Drive: {drive_err}")
 
         folder = Folder(name=folder_name, user_id=user_id, drive_folder_id=drive_id)
         db.session.add(folder)
         db.session.commit()
-        return jsonify(folder.to_dict()), 201
+        resp = folder.to_dict()
+        if not drive_id:
+            resp["drive_warning"] = "Carpeta creada solo localmente. Conecta Google Drive para sincronizar."
+        return jsonify(resp), 201
 
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -51,6 +64,7 @@ def create_folder():
 # Eliminar carpeta
 # =========================
 @folders_bp.route("/folders/<int:folder_id>", methods=["DELETE"])
+@cross_origin(supports_credentials=True)
 def delete_folder(folder_id):
     user_id = session.get("user_id")
     if not user_id:
