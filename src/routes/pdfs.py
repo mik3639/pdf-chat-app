@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, session
+from flask_cors import cross_origin
 from werkzeug.utils import secure_filename
 from src.models.user import User, Folder, PDF, db
 from src.google_drive import upload_file_to_drive, delete_drive_file
@@ -48,9 +49,13 @@ def ensure_upload_directory():
         os.makedirs(upload_path)
     return upload_path
 
-@pdfs_bp.route('/folders/<int:folder_id>/pdfs', methods=['POST'])
+@pdfs_bp.route('/folders/<int:folder_id>/pdfs', methods=['POST', 'OPTIONS'])
+@cross_origin(supports_credentials=True)
 def upload_pdf(folder_id):
     """Sube un PDF a una carpeta específica"""
+    # Responder preflight CORS sin requerir autenticación
+    if request.method == 'OPTIONS':
+        return '', 204
     auth_error = require_auth()
     if auth_error:
         return auth_error
