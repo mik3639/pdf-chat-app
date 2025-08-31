@@ -32,7 +32,7 @@ def list_folders():
         # Auto-sync Drive para carpetas vinculadas (throttle)
         now = datetime.utcnow()
         min_interval = timedelta(minutes=3)
-        max_files_per_folder = 5
+        default_max_files = 5
 
         for folder in folders:
             try:
@@ -40,6 +40,8 @@ def list_folders():
                     continue
                 if folder.last_drive_sync_at and (now - folder.last_drive_sync_at) < min_interval:
                     continue
+                # Ajustar límite: primera vez (sincronización inicial) trae más archivos
+                max_files_per_folder = 200 if not folder.last_drive_sync_at else default_max_files
                 # Mapear existentes por drive_file_id
                 existing_ids = {
                     p.drive_file_id for p in folder.pdfs if p.drive_file_id
