@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, session
+from flask_cors import cross_origin
 from src.models.user import User, Folder, PDF, Conversation, Message, db
 from src.services.simple_ai_service import ai_service
 import os
@@ -33,6 +34,7 @@ def get_folder_content(folder_ids, user_id):
     return "\n".join(content)
 
 @chat_bp.route('/ai-info', methods=['GET'])
+@cross_origin(supports_credentials=True)
 def get_ai_info():
     """Obtiene información sobre el proveedor de IA actual"""
     auth_error = require_auth()
@@ -42,6 +44,7 @@ def get_ai_info():
     return jsonify(ai_service.get_provider_info())
 
 @chat_bp.route('/conversations', methods=['GET'])
+@cross_origin(supports_credentials=True)
 def get_conversations():
     """Obtiene todas las conversaciones del usuario"""
     auth_error = require_auth()
@@ -55,8 +58,12 @@ def get_conversations():
     
     return jsonify([conv.to_dict() for conv in conversations])
 
-@chat_bp.route('/conversations', methods=['POST'])
+@chat_bp.route('/conversations', methods=['POST', 'OPTIONS'])
+@cross_origin(supports_credentials=True)
 def create_conversation():
+    # Preflight CORS
+    if request.method == 'OPTIONS':
+        return '', 204
     """Crea una nueva conversación"""
     auth_error = require_auth()
     if auth_error:
@@ -76,6 +83,7 @@ def create_conversation():
     return jsonify(conversation.to_dict()), 201
 
 @chat_bp.route('/conversations/<int:conversation_id>', methods=['GET'])
+@cross_origin(supports_credentials=True)
 def get_conversation(conversation_id):
     """Obtiene una conversación específica con sus mensajes"""
     auth_error = require_auth()
@@ -99,8 +107,12 @@ def get_conversation(conversation_id):
     
     return jsonify(conversation_data)
 
-@chat_bp.route('/conversations/<int:conversation_id>/messages', methods=['POST'])
+@chat_bp.route('/conversations/<int:conversation_id>/messages', methods=['POST', 'OPTIONS'])
+@cross_origin(supports_credentials=True)
 def send_message(conversation_id):
+    # Preflight CORS
+    if request.method == 'OPTIONS':
+        return '', 204
     """Envía un mensaje en una conversación y obtiene respuesta de IA"""
     auth_error = require_auth()
     if auth_error:
@@ -175,8 +187,12 @@ def send_message(conversation_id):
         db.session.rollback()
         return jsonify({'error': f'Error procesando el mensaje: {str(e)}'}), 500
 
-@chat_bp.route('/conversations/<int:conversation_id>', methods=['DELETE'])
+@chat_bp.route('/conversations/<int:conversation_id>', methods=['DELETE', 'OPTIONS'])
+@cross_origin(supports_credentials=True)
 def delete_conversation(conversation_id):
+    # Preflight CORS
+    if request.method == 'OPTIONS':
+        return '', 204
     """Elimina una conversación"""
     auth_error = require_auth()
     if auth_error:
@@ -197,6 +213,7 @@ def delete_conversation(conversation_id):
     return '', 204
 
 @chat_bp.route('/folders-summary', methods=['GET'])
+@cross_origin(supports_credentials=True)
 def get_folders_summary():
     """Obtiene un resumen de las carpetas del usuario para el chat"""
     auth_error = require_auth()
