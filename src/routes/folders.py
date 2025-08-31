@@ -11,11 +11,16 @@ folders_bp = Blueprint("folders", __name__)
 @folders_bp.route("/folders", methods=["GET"])
 @cross_origin(supports_credentials=True)
 def list_folders():
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"error": "No autenticado"}), 401
-    folders = Folder.query.filter_by(user_id=user_id).all()
-    return jsonify([f.to_dict() for f in folders])
+    try:
+        user_id = session.get("user_id")
+        if not user_id:
+            return jsonify({"error": "No autenticado"}), 401
+        folders = Folder.query.filter_by(user_id=user_id).all()
+        return jsonify([f.to_dict() for f in folders])
+    except Exception as e:
+        # Log del error para Render
+        print(f"[Folders][GET] Error listando carpetas: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # =========================
 # Crear carpeta nueva
