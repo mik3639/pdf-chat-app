@@ -93,7 +93,10 @@ app = create_app()
 
 # Crear tablas de la base de datos
 with app.app_context():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    db_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+    db_path = db_uri.replace("sqlite:///", "") if db_uri.startswith("sqlite:///") else ""
+    if db_path:
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
     db.create_all()
 
 # Ruta para servir archivos estáticos
