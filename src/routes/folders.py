@@ -36,7 +36,11 @@ def create_folder():
         return jsonify({"error": "No autenticado"}), 401
 
     data = request.get_json(silent=True) or {}
-    folder_name = data.get("name")
+    folder_name = data.get("name") or data.get("folderName")
+    if not folder_name and request.form:
+        folder_name = request.form.get("name") or request.form.get("folderName")
+    if folder_name and isinstance(folder_name, str):
+        folder_name = folder_name.strip()
     if not folder_name:
         return jsonify({"error": "Nombre de carpeta requerido"}), 400
 
