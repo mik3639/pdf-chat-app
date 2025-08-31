@@ -103,6 +103,17 @@ with app.app_context():
     if db_path:
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
     db.create_all()
+    # Lightweight migration: ensure 'drive_file_id' exists on 'pdf'
+    try:
+        # Only applies to SQLite
+        if db_uri.startswith("sqlite"):
+            result = db.engine.execute("PRAGMA table_info(pdf)").fetchall()
+            col_names = [row[1] for row in result]
+            if 'drive_file_id' not in col_names:
+                db.engine.execute("ALTER TABLE pdf ADD COLUMN drive_file_id VARCHAR(255)")
+    except Exception as e:
+        # Log but do not crash the app
+        print(f"[DB Migration] Aviso: no se pudo actualizar la columna drive_file_id: {e}")
 
 # Ruta para servir archivos estáticos
 @app.route("/", defaults={"path": ""})

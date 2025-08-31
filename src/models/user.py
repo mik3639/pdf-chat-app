@@ -96,6 +96,7 @@ class PDF(db.Model):
     folder_id = db.Column(db.Integer, db.ForeignKey('folder.id'), nullable=False)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     file_size = db.Column(db.Integer)
+    drive_file_id = db.Column(db.String(255))
 
     def __repr__(self):
         return f'<PDF {self.original_filename}>'
@@ -107,7 +108,8 @@ class PDF(db.Model):
             'original_filename': self.original_filename,
             'folder_id': self.folder_id,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
-            'file_size': self.file_size
+            'file_size': self.file_size,
+            'drive_file_id': self.drive_file_id
         }
 
 

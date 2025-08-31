@@ -48,3 +48,12 @@ def upload_file_to_drive(user, folder_id, file_path, filename=None):
     except HttpError as error:
         print(f"Error al subir archivo a Drive: {error}")
         return None
+
+def delete_drive_file(user, file_id):
+    service = get_drive_service(user)
+    try:
+        service.files().delete(fileId=file_id).execute()
+        return True
+    except HttpError as error:
+        print(f"Error al eliminar archivo en Drive: {error}")
+        return False

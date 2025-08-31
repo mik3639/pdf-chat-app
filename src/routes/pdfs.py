@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, session
 from werkzeug.utils import secure_filename
 from src.models.user import User, Folder, PDF, db
+from src.google_drive import upload_file_to_drive, delete_drive_file
 import os
 import uuid
 import PyPDF2
@@ -106,10 +107,22 @@ def upload_pdf(folder_id):
             folder_id=folder_id,
             file_size=file_size
         )
-        
+
         db.session.add(pdf)
         db.session.commit()
-        
+
+        # Subir a Google Drive si la carpeta tiene drive_folder_id
+        try:
+            if folder.drive_folder_id:
+                user = User.query.get(user_id)
+                drive_id = upload_file_to_drive(user, folder.drive_folder_id, file_path, filename=original_filename)
+                if drive_id:
+                    pdf.drive_file_id = drive_id
+                    db.session.commit()
+        except Exception as e:
+            # No fallar toda la operación si la subida a Drive falla
+            print(f"Advertencia: No se pudo subir el PDF a Drive: {str(e)}")
+
         return jsonify(pdf.to_dict()), 201
         
     except Exception as e:
@@ -169,6 +182,14 @@ def delete_pdf(pdf_id):
             os.remove(pdf.file_path)
         except OSError:
             pass  # Continuar aunque no se pueda eliminar el archivo
+    
+    # Eliminar de Google Drive si existe
+    try:
+        if pdf.drive_file_id:
+            user = User.query.get(user_id)
+            delete_drive_file(user, pdf.drive_file_id)
+    except Exception as e:
+        print(f"Advertencia: No se pudo eliminar el archivo en Drive: {str(e)}")
     
     db.session.delete(pdf)
     db.session.commit()
