@@ -34,7 +34,11 @@ def create_app():
     app.config["SESSION_PERMANENT"] = False
     app.config["SESSION_USE_SIGNER"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "None"
-    app.config["SESSION_COOKIE_SECURE"] = os.getenv("FLASK_ENV") == "production"
+    # Asegurar cookies seguras cuando se usa HTTPS (requerido para SameSite=None)
+    _frontend_env = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    _base_env = os.getenv("BASE_URL", "").rstrip("/")
+    _uses_https = _frontend_env.startswith("https://") or _base_env.startswith("https://")
+    app.config["SESSION_COOKIE_SECURE"] = _uses_https
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     
     # Configuración de la base de datos (usar src/database/app.db)
@@ -45,15 +49,16 @@ def create_app():
     # Inicializar extensiones
     db.init_app(app)
     Session(app)
-    
-    # Configurar CORS
+    # Configurar CORS (normalizando FRONTEND_URL para evitar slash final)
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
     CORS(
         app,
         supports_credentials=True,
         origins=[
-            os.getenv("FRONTEND_URL", "http://localhost:5173"),
+            frontend_url,
             "http://localhost:5173",
-            "http://127.0.0.1:5173"
+            "http://127.0.0.1:5173",
+            "https://pdf-chat-frontend-v9ud.onrender.com"
         ],
         allow_headers=["Content-Type", "Authorization"],
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
