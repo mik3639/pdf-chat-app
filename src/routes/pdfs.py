@@ -2,7 +2,13 @@ from flask import Blueprint, request, jsonify, session
 from flask_cors import cross_origin
 from werkzeug.utils import secure_filename
 from src.models.user import User, Folder, PDF, db
-from src.google_drive import upload_file_to_drive, delete_drive_file
+from src.google_drive import (
+    upload_file_to_drive,
+    delete_drive_file,
+    list_pdfs_in_folder,
+    download_file_to_path,
+    get_file_metadata,
+)
 import os
 import uuid
 import PyPDF2
@@ -245,4 +251,90 @@ def search_in_folder(folder_id):
         'results': results,
         'total_matches': len(results)
     })
+
+
+@pdfs_bp.route('/folders/<int:folder_id>/sync-drive', methods=['POST', 'OPTIONS'])
+@cross_origin(supports_credentials=True)
+def sync_drive_pdfs(folder_id):
+    """Importa/sincroniza PDFs desde la carpeta de Drive vinculada a esta carpeta local."""
+    if request.method == 'OPTIONS':
+        return '', 204
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+
+    user_id = session['user_id']
+    folder = Folder.query.filter_by(id=folder_id, user_id=user_id).first()
+    if not folder:
+        return jsonify({'error': 'Carpeta no encontrada'}), 404
+    if not folder.drive_folder_id:
+        return jsonify({'error': 'La carpeta no está vinculada a Google Drive'}), 400
+
+    # Obtener usuario para credenciales de Drive
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'Usuario no encontrado'}), 404
+
+    try:
+        drive_files = list_pdfs_in_folder(user, folder.drive_folder_id) or []
+        imported = []
+        skipped = []
+
+        # Mapear por drive_file_id existentes para evitar duplicados
+        existing_by_drive_id = {p.drive_file_id: p for p in PDF.query.filter(PDF.folder_id == folder.id, PDF.drive_file_id.isnot(None)).all()}
+
+        for f in drive_files:
+            drive_id = f.get('id')
+            name = f.get('name') or 'archivo.pdf'
+            if drive_id in existing_by_drive_id:
+                skipped.append({'id': drive_id, 'name': name, 'reason': 'already_imported'})
+                continue
+
+            # Descargar archivo a uploads con nombre único
+            original_filename = secure_filename(name)
+            if not original_filename.lower().endswith('.pdf'):
+                original_filename = f"{original_filename}.pdf"
+            unique_filename = f"{uuid.uuid4().hex}.pdf"
+            upload_path = ensure_upload_directory()
+            file_path = os.path.join(upload_path, unique_filename)
+
+            ok = download_file_to_path(user, drive_id, file_path)
+            if not ok:
+                skipped.append({'id': drive_id, 'name': name, 'reason': 'download_failed'})
+                # Limpieza si corresponde
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except OSError:
+                        pass
+                continue
+
+            # Calcular tamaño
+            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
+
+            # Extraer texto e insertar en DB
+            extracted_text = extract_text_from_pdf(file_path)
+            pdf = PDF(
+                filename=unique_filename,
+                original_filename=original_filename,
+                file_path=file_path,
+                content=extracted_text,
+                folder_id=folder.id,
+                file_size=file_size,
+                drive_file_id=drive_id,
+            )
+            db.session.add(pdf)
+            db.session.commit()
+            imported.append(pdf.to_dict())
+
+        return jsonify({
+            'imported_count': len(imported),
+            'skipped_count': len(skipped),
+            'imported': imported,
+            'skipped': skipped
+        })
+    except Exception as e:
+        db.session.rollback()
+        print(f"[Drive Sync] Error: {e}")
+        return jsonify({'error': str(e)}), 500
 

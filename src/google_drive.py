@@ -3,7 +3,8 @@ import json
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from io import BytesIO
 
 def get_drive_service(user):
     creds_data = user.get_drive_credentials()
@@ -56,4 +57,60 @@ def delete_drive_file(user, file_id):
         return True
     except HttpError as error:
         print(f"Error al eliminar archivo en Drive: {error}")
+        return False
+
+def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
+    """Lista carpetas de Drive del usuario. Si parent_id es None, usa 'root'."""
+    service = get_drive_service(user)
+    q_parts = ["mimeType = 'application/vnd.google-apps.folder'", "trashed = false"]
+    if parent_id is None:
+        parent_id = 'root'
+    if parent_id:
+        q_parts.append(f"'{parent_id}' in parents")
+    if query_text:
+        # Búsqueda por nombre (contains) escapando comillas simples
+        safe = query_text.replace("'", "\\'")
+        q_parts.append(f"name contains '{safe}'")
+    q = ' and '.join(q_parts)
+    try:
+        results = service.files().list(q=q, spaces='drive', fields="files(id, name)", pageSize=page_size).execute()
+        return results.get('files', [])
+    except HttpError as error:
+        print(f"Error listando carpetas en Drive: {error}")
+        return []
+
+def list_pdfs_in_folder(user, folder_id, page_size=200):
+    """Lista archivos PDF dentro de una carpeta de Drive."""
+    service = get_drive_service(user)
+    q = f"'{folder_id}' in parents and mimeType = 'application/pdf' and trashed = false"
+    try:
+        results = service.files().list(q=q, spaces='drive', fields="files(id, name, mimeType, size)", pageSize=page_size).execute()
+        return results.get('files', [])
+    except HttpError as error:
+        print(f"Error listando PDFs en carpeta de Drive: {error}")
+        return []
+
+def get_file_metadata(user, file_id, fields="id, name, mimeType, size"):
+    service = get_drive_service(user)
+    try:
+        return service.files().get(fileId=file_id, fields=fields).execute()
+    except HttpError as error:
+        print(f"Error obteniendo metadatos del archivo Drive: {error}")
+        return None
+
+def download_file_to_path(user, file_id, dest_path):
+    """Descarga un archivo de Drive al path indicado."""
+    service = get_drive_service(user)
+    request = service.files().get_media(fileId=file_id)
+    fh = BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    try:
+        while not done:
+            status, done = downloader.next_chunk()
+        with open(dest_path, 'wb') as f:
+            f.write(fh.getvalue())
+        return True
+    except HttpError as error:
+        print(f"Error descargando archivo de Drive: {error}")
         return False

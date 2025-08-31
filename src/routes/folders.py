@@ -1,7 +1,13 @@
 from flask import Blueprint, request, jsonify, session
 from flask_cors import cross_origin
 from src.models.user import User, Folder, db
-from src.google_drive import create_drive_folder, delete_drive_folder
+from src.google_drive import (
+    create_drive_folder,
+    delete_drive_folder,
+    list_drive_folders,
+    list_pdfs_in_folder,
+    get_file_metadata,
+)
 
 folders_bp = Blueprint("folders", __name__)
 
@@ -94,3 +100,113 @@ def delete_folder(folder_id):
     db.session.delete(folder)
     db.session.commit()
     return '', 204
+
+
+# =========================
+# Navegar Drive (carpetas)
+# =========================
+@folders_bp.route("/drive/folders", methods=["GET", "OPTIONS"])
+@cross_origin(supports_credentials=True)
+def drive_list_folders():
+    if request.method == "OPTIONS":
+        return "", 204
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "No autenticado"}), 401
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    parent_id = request.args.get("parentId")
+    q = request.args.get("q")
+    try:
+        folders = list_drive_folders(user, parent_id=parent_id, query_text=q)
+        return jsonify({"folders": folders})
+    except Exception as e:
+        print(f"[Drive][list_folders] {e}")
+        return jsonify({"error": str(e)}), 400
+
+
+# =========================
+# Listar PDFs de una carpeta de Drive
+# =========================
+@folders_bp.route("/drive/folders/<drive_folder_id>/pdfs", methods=["GET", "OPTIONS"])
+@cross_origin(supports_credentials=True)
+def drive_list_pdfs(drive_folder_id):
+    if request.method == "OPTIONS":
+        return "", 204
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "No autenticado"}), 401
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    try:
+        files = list_pdfs_in_folder(user, drive_folder_id)
+        return jsonify({"files": files})
+    except Exception as e:
+        print(f"[Drive][list_pdfs] {e}")
+        return jsonify({"error": str(e)}), 400
+
+
+# =========================
+# Vincular una carpeta local a una carpeta de Drive existente
+# =========================
+@folders_bp.route("/folders/<int:folder_id>/link-drive", methods=["POST", "OPTIONS"])
+@cross_origin(supports_credentials=True)
+def link_drive_folder(folder_id):
+    if request.method == "OPTIONS":
+        return "", 204
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "No autenticado"}), 401
+    folder = Folder.query.get(folder_id)
+    if not folder or folder.user_id != user_id:
+        return jsonify({"error": "No autorizado"}), 403
+    data = request.get_json(silent=True) or {}
+    drive_folder_id = data.get("drive_folder_id") or data.get("driveFolderId")
+    if not drive_folder_id:
+        return jsonify({"error": "drive_folder_id requerido"}), 400
+    try:
+        folder.drive_folder_id = drive_folder_id
+        db.session.commit()
+        return jsonify(folder.to_dict())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+# =========================
+# Crear carpeta local desde una carpeta de Drive seleccionada
+# =========================
+@folders_bp.route("/folders/from-drive", methods=["POST", "OPTIONS"])
+@cross_origin(supports_credentials=True)
+def create_folder_from_drive():
+    if request.method == "OPTIONS":
+        return "", 204
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "No autenticado"}), 401
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    data = request.get_json(silent=True) or {}
+    drive_folder_id = data.get("drive_folder_id") or data.get("driveFolderId")
+    name = (data.get("name") or data.get("folderName") or '').strip()
+    if not drive_folder_id:
+        return jsonify({"error": "drive_folder_id requerido"}), 400
+    # Si no llega nombre, lo tomamos de Drive
+    if not name:
+        try:
+            meta = get_file_metadata(user, drive_folder_id, fields="id, name, mimeType")
+            if not meta or meta.get('mimeType') != 'application/vnd.google-apps.folder':
+                return jsonify({"error": "El id no corresponde a una carpeta"}), 400
+            name = meta.get('name') or 'Carpeta de Drive'
+        except Exception as e:
+            print(f"[Drive][metadata] {e}")
+            name = 'Carpeta de Drive'
+    try:
+        folder = Folder(name=name, user_id=user_id, drive_folder_id=drive_folder_id)
+        db.session.add(folder)
+        db.session.commit()
+        return jsonify(folder.to_dict()), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
