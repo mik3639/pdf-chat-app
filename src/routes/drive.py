@@ -14,6 +14,7 @@ from google_auth_oauthlib.flow import Flow
 from src.google_drive import (
     get_file_metadata,
     list_pdfs_in_folder,
+    list_pdfs_in_folder_recursive,
     download_file_to_path,
     upload_file_to_drive,
 )
@@ -118,7 +119,8 @@ def import_folder():
     # Evitar duplicados por drive_file_id y permitir sobreescritura si se solicita
     existing_by_id = {p.drive_file_id: p for p in folder.pdfs if p.drive_file_id}
     existing_ids = set(existing_by_id.keys())
-    drive_files = list_pdfs_in_folder(user, drive_folder_id) or []
+    # Incluir PDFs de subcarpetas también
+    drive_files = list_pdfs_in_folder_recursive(user, drive_folder_id) or []
     drive_ids = {f.get("id") for f in drive_files if f.get("id")}
 
     # Eliminar PDFs locales que ya no existen en la carpeta de Drive (sincronización completa)

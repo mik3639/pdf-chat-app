@@ -90,6 +90,50 @@ def list_pdfs_in_folder(user, folder_id, page_size=200):
         print(f"Error listando PDFs en carpeta de Drive: {error}")
         return []
 
+def list_pdfs_in_folder_recursive(user, folder_id, page_size=200):
+    """
+    Lista todos los PDFs dentro de una carpeta de Drive y sus subcarpetas (recursivo).
+    Devuelve una lista de dicts con al menos: id, name, mimeType, size.
+    """
+    service = get_drive_service(user)
+
+    def list_children(fid, mime_filter=None):
+        q_parts = [f"'{fid}' in parents", "trashed = false"]
+        if mime_filter:
+            q_parts.append(mime_filter)
+        q = ' and '.join(q_parts)
+        items = []
+        page_token = None
+        while True:
+            try:
+                resp = service.files().list(
+                    q=q,
+                    spaces='drive',
+                    fields="nextPageToken, files(id, name, mimeType, size)",
+                    pageSize=page_size,
+                    pageToken=page_token,
+                ).execute()
+                items.extend(resp.get('files', []))
+                page_token = resp.get('nextPageToken')
+                if not page_token:
+                    break
+            except HttpError as error:
+                print(f"Error listando hijos en Drive: {error}")
+                break
+        return items
+
+    all_pdfs = []
+    # PDFs en la carpeta actual
+    all_pdfs.extend(list_children(folder_id, "mimeType = 'application/pdf'"))
+    # Subcarpetas
+    subfolders = list_children(folder_id, "mimeType = 'application/vnd.google-apps.folder'")
+    for sf in subfolders:
+        sub_id = sf.get('id')
+        if not sub_id:
+            continue
+        all_pdfs.extend(list_pdfs_in_folder_recursive(user, sub_id, page_size))
+    return all_pdfs
+
 def get_file_metadata(user, file_id, fields="id, name, mimeType, size"):
     service = get_drive_service(user)
     try:
