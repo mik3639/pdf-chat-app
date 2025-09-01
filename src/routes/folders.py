@@ -192,13 +192,13 @@ def drive_list_folders():
         return jsonify({"error": "Usuario no encontrado"}), 404
     parent_id = request.args.get("parentId")
     q = request.args.get("q")
-    # Si el cliente no especifica limit:
-    # - Sin búsqueda: devolver solo las 5 últimas (mejora rendimiento)
-    # - Con búsqueda: sin límite por defecto (all) para encontrar coincidencias
-    if "limit" in request.args:
-        raw_limit = request.args.get("limit")
+    # Política de límite:
+    # - Con búsqueda (q no vacío): SIEMPRE 'all' para buscar en todas las carpetas
+    # - Sin búsqueda: usar ?limit si viene, o 5 por defecto
+    if q and q.strip():
+        raw_limit = "all"
     else:
-        raw_limit = "5" if not (q and q.strip()) else "all"
+        raw_limit = request.args.get("limit", "5")
     try:
         if isinstance(raw_limit, str) and raw_limit.lower() == "all":
             limit = -1
