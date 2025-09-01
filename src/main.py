@@ -19,6 +19,7 @@ from src.routes.auth import auth_bp
 from src.routes.folders import folders_bp
 from src.routes.pdfs import pdfs_bp
 from src.routes.chat import chat_bp
+from src.routes.drive import drive_bp
 from authlib.integrations.flask_client import OAuth
 
 def create_app():

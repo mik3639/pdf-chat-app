@@ -2,13 +2,15 @@
 import os
 import uuid
 import os.path
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, session, redirect
 from flask_cors import cross_origin
 
 from src.models.user import User, db
 from src.models.user import PDF, Folder  # ajusta import si tus modelos están en otro módulo
 
-from src.routes.auth import login as auth_login  # reutiliza generación de auth_url
+from src.routes.auth import login as auth_login, client_config, SCOPES, GOOGLE_REDIRECT_URI  # reutiliza generación de auth_url
+from google_auth_oauthlib.flow import Flow
+
 from src.google_drive import (
     get_file_metadata,
     list_pdfs_in_folder,
@@ -34,7 +36,27 @@ def drive_status():
 @drive_bp.route("/auth", methods=["GET"])
 @cross_origin(supports_credentials=True)
 def drive_auth():
-    # devuelve { auth_url } como /api/auth/login para el frontend
+    # Si es navegación directa (no fetch), redirige a Google inmediatamente.
+    accept = request.headers.get("Accept", "")
+    sec_fetch_mode = request.headers.get("Sec-Fetch-Mode", "")
+    wants_redirect = (
+        request.args.get("redirect") == "1"
+        or "text/html" in accept
+        or sec_fetch_mode == "navigate"
+    )
+
+    if wants_redirect:
+        flow = Flow.from_client_config(client_config, scopes=SCOPES)
+        flow.redirect_uri = GOOGLE_REDIRECT_URI
+        auth_url, state = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="consent",
+        )
+        session["oauth_state"] = state
+        return redirect(auth_url)
+
+    # Caso AJAX: devolver { auth_url }
     return auth_login()
 
 @drive_bp.route("/import-folder", methods=["POST", "OPTIONS"])
