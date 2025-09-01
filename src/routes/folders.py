@@ -192,8 +192,13 @@ def drive_list_folders():
         return jsonify({"error": "Usuario no encontrado"}), 404
     parent_id = request.args.get("parentId")
     q = request.args.get("q")
-    # limit opcional (default: all). Soporta 'all' o -1 para sin límite
-    raw_limit = request.args.get("limit", "all")
+    # Si el cliente no especifica limit:
+    # - Sin búsqueda: devolver solo las 5 últimas (mejora rendimiento)
+    # - Con búsqueda: sin límite por defecto (all) para encontrar coincidencias
+    if "limit" in request.args:
+        raw_limit = request.args.get("limit")
+    else:
+        raw_limit = "5" if not (q and q.strip()) else "all"
     try:
         if isinstance(raw_limit, str) and raw_limit.lower() == "all":
             limit = -1
@@ -206,19 +211,30 @@ def drive_list_folders():
     except Exception:
         limit = 20
     try:
+        # Si hay búsqueda, forzar modo global para encontrar carpetas aunque no estén en las 5 mostradas
+        effective_parent = parent_id
+        if q and q.strip():
+            effective_parent = 'any'
+
         # Evitar listar todo el Drive cuando se usa búsqueda global sin término
-        if (parent_id or '').lower() == 'any':
+        if (effective_parent or '').lower() == 'any':
             q_norm = (q or '').strip()
             if len(q_norm) < 2:
                 return jsonify({
                     "folders": [],
-                    "limit": limit,
-                    "parentId": parent_id,
+                    "limit": raw_limit,
+                    "parentId": effective_parent,
                     "q": q,
                     "note": "Proporciona al menos 2 caracteres para buscar en todo el Drive"
                 })
-        folders = list_drive_folders(user, parent_id=parent_id, query_text=q, page_size=limit)
-        return jsonify({"folders": folders, "limit": raw_limit, "parentId": parent_id or "root", "q": q})
+        folders = list_drive_folders(user, parent_id=effective_parent, query_text=q, page_size=limit)
+        return jsonify({
+            "folders": folders,
+            "limit": raw_limit,
+            "parentId": (effective_parent or "root"),
+            "q": q,
+            "note": (None if q and q.strip() else "Mostrando las 5 carpetas más recientes. Usa el buscador para encontrar otras.")
+        })
     except Exception as e:
         print(f"[Drive][list_folders] {e}")
         return jsonify({"error": str(e)}), 400
