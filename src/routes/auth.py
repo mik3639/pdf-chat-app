@@ -26,6 +26,9 @@ SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
+    # Read all files in Drive (to list PDFs not created by the app)
+    "https://www.googleapis.com/auth/drive.readonly",
+    # Create/update files the app owns (for optional uploads to the selected folder)
     "https://www.googleapis.com/auth/drive.file"
 ]
 

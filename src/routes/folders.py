@@ -215,8 +215,16 @@ def drive_list_pdfs(drive_folder_id):
     if not user:
         return jsonify({"error": "Usuario no encontrado"}), 404
     try:
-        files = list_pdfs_in_folder(user, drive_folder_id)
-        return jsonify({"files": files})
+        # Enable recursive listing via query param. Default: true
+        recursive_param = (request.args.get("recursive", "1") or "").strip().lower()
+        recursive = recursive_param in ("1", "true", "yes", "y")
+
+        if recursive:
+            files = list_pdfs_in_folder_recursive(user, drive_folder_id)
+        else:
+            files = list_pdfs_in_folder(user, drive_folder_id)
+
+        return jsonify({"files": files, "recursive": recursive})
     except Exception as e:
         print(f"[Drive][list_pdfs] {e}")
         return jsonify({"error": str(e)}), 400
