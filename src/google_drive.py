@@ -73,21 +73,37 @@ def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
     if isinstance(parent_id, str) and parent_id.lower() == 'any':
         use_parent = False
 
-    # Si no hay query, hacer una sola consulta (más eficiente)
+    # Si no hay query, listar con paginación (o una sola llamada si page_size > 0)
     if not query_text:
         q_parts = ["mimeType = 'application/vnd.google-apps.folder'", "trashed = false"]
         if use_parent and parent_id:
             q_parts.append(f"'{parent_id}' in parents")
         q = ' and '.join(q_parts)
         try:
-            results = service.files().list(
-                q=q,
-                spaces='drive',
-                fields="files(id, name)",
-                pageSize=page_size,
-                orderBy='name_natural'
-            ).execute()
-            return results.get('files', [])
+            # page_size == -1 => sin límite (paginación completa)
+            items = []
+            page_token = None
+            remaining = None if page_size == -1 else max(0, int(page_size))
+            while True:
+                req_size = 200 if remaining is None else max(1, min(remaining, 200))
+                resp = service.files().list(
+                    q=q,
+                    spaces='drive',
+                    fields="nextPageToken, files(id, name)",
+                    pageSize=req_size,
+                    orderBy='name_natural',
+                    pageToken=page_token,
+                ).execute()
+                batch = resp.get('files', [])
+                items.extend(batch)
+                page_token = resp.get('nextPageToken')
+                if remaining is not None:
+                    remaining -= len(batch)
+                    if remaining <= 0:
+                        break
+                if not page_token:
+                    break
+            return items
         except HttpError as error:
             print(f"Error listando carpetas en Drive: {error}")
             return []
@@ -106,11 +122,11 @@ def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
     else:
         text_variants = [""]
 
-    # 2) Ejecutar múltiples consultas y fusionar resultados por id
+    # 2) Ejecutar múltiples consultas y fusionar resultados por id (con paginación)
     combined = {}
-    remaining = page_size
+    remaining = None if page_size == -1 else max(0, int(page_size))
     for tv in text_variants:
-        if remaining <= 0:
+        if remaining is not None and remaining <= 0:
             break
         q_parts = ["mimeType = 'application/vnd.google-apps.folder'", "trashed = false"]
         if use_parent and parent_id:
@@ -120,20 +136,30 @@ def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
             q_parts.append(f"name contains '{safe}'")
         q = ' and '.join(q_parts)
         try:
-            results = service.files().list(
-                q=q,
-                spaces='drive',
-                fields="files(id, name)",
-                pageSize=min(remaining, page_size),
-                orderBy='name_natural'
-            ).execute()
-            for f in results.get('files', []):
-                fid = f.get('id')
-                if fid and fid not in combined:
-                    combined[fid] = f
-                    remaining -= 1
-                    if remaining <= 0:
-                        break
+            page_token = None
+            while True:
+                req_size = 200 if remaining is None else max(1, min(remaining, 200))
+                resp = service.files().list(
+                    q=q,
+                    spaces='drive',
+                    fields="nextPageToken, files(id, name)",
+                    pageSize=req_size,
+                    orderBy='name_natural',
+                    pageToken=page_token,
+                ).execute()
+                for f in resp.get('files', []):
+                    fid = f.get('id')
+                    if fid and fid not in combined:
+                        combined[fid] = f
+                        if remaining is not None:
+                            remaining -= 1
+                            if remaining <= 0:
+                                break
+                if remaining is not None and remaining <= 0:
+                    break
+                page_token = resp.get('nextPageToken')
+                if not page_token:
+                    break
         except HttpError as error:
             print(f"Error listando carpetas en Drive (variant): {error}")
             continue
@@ -143,6 +169,8 @@ def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
     out = [f for f in combined.values() if ql in (f.get('name') or '').lower()]
     # Ordenar por name_natural-like (simple: nombre lower)
     out.sort(key=lambda x: (x.get('name') or '').lower())
+    if page_size == -1:
+        return out
     return out[:page_size]
 
 def list_pdfs_in_folder(user, folder_id, page_size=200):

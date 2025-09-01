@@ -192,13 +192,17 @@ def drive_list_folders():
         return jsonify({"error": "Usuario no encontrado"}), 404
     parent_id = request.args.get("parentId")
     q = request.args.get("q")
-    # limit opcional (default 20). Se pasa como page_size hacia Drive
+    # limit opcional (default 20). Soporta 'all' o -1 para sin límite
+    raw_limit = request.args.get("limit", "20")
     try:
-        limit = int(request.args.get("limit", 20))
-        if limit <= 0:
-            limit = 20
-        if limit > 200:
-            limit = 200
+        if isinstance(raw_limit, str) and raw_limit.lower() == "all":
+            limit = -1
+        else:
+            limit = int(raw_limit)
+            if limit == -1:
+                pass  # ilimitado
+            elif limit <= 0:
+                limit = 20
     except Exception:
         limit = 20
     try:
@@ -214,7 +218,7 @@ def drive_list_folders():
                     "note": "Proporciona al menos 2 caracteres para buscar en todo el Drive"
                 })
         folders = list_drive_folders(user, parent_id=parent_id, query_text=q, page_size=limit)
-        return jsonify({"folders": folders, "limit": limit, "parentId": parent_id or "root", "q": q})
+        return jsonify({"folders": folders, "limit": raw_limit, "parentId": parent_id or "root", "q": q})
     except Exception as e:
         print(f"[Drive][list_folders] {e}")
         return jsonify({"error": str(e)}), 400
