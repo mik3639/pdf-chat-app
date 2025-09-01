@@ -63,9 +63,13 @@ def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
     """Lista carpetas de Drive del usuario. Si parent_id es None, usa 'root'."""
     service = get_drive_service(user)
     q_parts = ["mimeType = 'application/vnd.google-apps.folder'", "trashed = false"]
+    # Permitir búsqueda global cuando parent_id == 'any'
+    use_parent = True
     if parent_id is None:
         parent_id = 'root'
-    if parent_id:
+    if isinstance(parent_id, str) and parent_id.lower() == 'any':
+        use_parent = False
+    if use_parent and parent_id:
         q_parts.append(f"'{parent_id}' in parents")
     if query_text:
         # Búsqueda por nombre (contains) escapando comillas simples
@@ -73,7 +77,13 @@ def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
         q_parts.append(f"name contains '{safe}'")
     q = ' and '.join(q_parts)
     try:
-        results = service.files().list(q=q, spaces='drive', fields="files(id, name)", pageSize=page_size).execute()
+        results = service.files().list(
+            q=q,
+            spaces='drive',
+            fields="files(id, name)",
+            pageSize=page_size,
+            orderBy='name_natural'
+        ).execute()
         return results.get('files', [])
     except HttpError as error:
         print(f"Error listando carpetas en Drive: {error}")
