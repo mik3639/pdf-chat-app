@@ -78,37 +78,76 @@ def import_folder():
     if not drive_folder_id:
         return jsonify({"error": "drive_folder_id requerido"}), 400
 
-    # Nombre desde Drive si no llega
-    name = (data.get("name") or data.get("folderName") or "").strip()
-    if not name:
-        meta = get_file_metadata(user, drive_folder_id, fields="id, name, mimeType")
-        if not meta or meta.get("mimeType") != "application/vnd.google-apps.folder":
-            return jsonify({"error": "El id no corresponde a una carpeta"}), 400
-        name = meta.get("name") or "Carpeta de Drive"
-
-    # Crear o reutilizar carpeta local vinculada
+    # Buscar carpeta local vinculada (si existe)
     folder = Folder.query.filter_by(user_id=user_id, drive_folder_id=drive_folder_id).first()
+
+    # Obtener metadatos de la carpeta en Drive
+    meta = get_file_metadata(user, drive_folder_id, fields="id, name, mimeType")
+    if not meta or meta.get("mimeType") != "application/vnd.google-apps.folder":
+        # Si no existe en Drive, permitir borrar localmente la carpeta y sus PDFs
+        if folder:
+            deleted_files = 0
+            for p in list(folder.pdfs):
+                if p.file_path and os.path.exists(p.file_path):
+                    try:
+                        os.remove(p.file_path)
+                    except OSError:
+                        pass
+                db.session.delete(p)
+                deleted_files += 1
+            db.session.delete(folder)
+            db.session.commit()
+            return jsonify({
+                "message": "Carpeta no existe en Drive. Carpeta local eliminada.",
+                "deleted_folder": True,
+                "deleted_pdfs": deleted_files
+            }), 200
+        # Si no hay carpeta local, reportar
+        return jsonify({"error": "La carpeta de Drive no existe"}), 404
+
+    # Nombre definitivo (preferencia: payload -> Drive -> por defecto)
+    name = (data.get("name") or data.get("folderName") or meta.get("name") or "Carpeta de Drive").strip()
+
+    # Crear carpeta local si no existe
     if not folder:
         folder = Folder(name=name, user_id=user_id, drive_folder_id=drive_folder_id)
         db.session.add(folder)
         db.session.commit()
 
-    # Evitar duplicados por drive_file_id
-    existing_ids = {p.drive_file_id for p in folder.pdfs if p.drive_file_id}
+    # Evitar duplicados por drive_file_id y permitir sobreescritura si se solicita
+    existing_by_id = {p.drive_file_id: p for p in folder.pdfs if p.drive_file_id}
+    existing_ids = set(existing_by_id.keys())
     drive_files = list_pdfs_in_folder(user, drive_folder_id) or []
+    drive_ids = {f.get("id") for f in drive_files if f.get("id")}
+
+    # Eliminar PDFs locales que ya no existen en la carpeta de Drive (sincronización completa)
+    deleted_count = 0
+    to_delete = [p for p in folder.pdfs if p.drive_file_id and p.drive_file_id not in drive_ids]
+    for p in to_delete:
+        # borrar archivo físico si existe
+        if p.file_path and os.path.exists(p.file_path):
+            try:
+                os.remove(p.file_path)
+            except OSError:
+                pass
+        db.session.delete(p)
+        deleted_count += 1
+    if deleted_count:
+        db.session.commit()
 
     imported_count = 0
+    updated_count = 0
     for f in drive_files:
         drive_id = f.get("id")
         file_name = (f.get("name") or "archivo.pdf").strip() or "archivo.pdf"
         if not drive_id:
             continue
+
+        # Si no queremos sobreescribir y ya existe, lo saltamos
         if not overwrite and drive_id in existing_ids:
             continue
-        if drive_id in existing_ids:
-            continue  # si quieres sobreescribir, aquí podrías eliminar y recrear
 
-        # Descargar y registrar
+        # Preparar descarga
         original_filename = file_name if file_name.lower().endswith(".pdf") else f"{file_name}.pdf"
         unique_filename = f"{uuid.uuid4().hex}.pdf"
         upload_path = ensure_upload_directory()
@@ -125,6 +164,27 @@ def import_folder():
         file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
         extracted_text = extract_text_from_pdf(file_path)
 
+        # Si ya existe y overwrite=True, actualizar el registro y reemplazar archivo
+        if overwrite and drive_id in existing_ids:
+            existing_pdf = existing_by_id.get(drive_id)
+            # eliminar archivo antiguo si existe
+            old_path = existing_pdf.file_path or ""
+            if old_path and os.path.exists(old_path):
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
+            # actualizar campos
+            existing_pdf.filename = unique_filename
+            existing_pdf.original_filename = original_filename
+            existing_pdf.file_path = file_path
+            existing_pdf.content = extracted_text
+            existing_pdf.file_size = file_size
+            db.session.commit()
+            updated_count += 1
+            continue
+
+        # Caso nuevo archivo: crear registro
         pdf = PDF(
             filename=unique_filename,
             original_filename=original_filename,
@@ -140,4 +200,6 @@ def import_folder():
 
     resp = folder.to_dict()
     resp["imported_count"] = imported_count
+    resp["updated_count"] = updated_count
+    resp["deleted_count"] = deleted_count
     return jsonify(resp), 200
