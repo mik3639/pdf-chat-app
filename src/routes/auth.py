@@ -34,6 +34,10 @@ SCOPES = [
 
 @auth_bp.route("/login", methods=["GET"])
 def login():
+    """Inicia el flujo de login.
+    - Por defecto devuelve JSON con auth_url.
+    - Si ?mode=redirect o ?navigate=1, redirige directamente (mejor en móvil).
+    """
     flow = Flow.from_client_config(client_config, scopes=SCOPES)
     flow.redirect_uri = GOOGLE_REDIRECT_URI
     auth_url, state = flow.authorization_url(
@@ -42,6 +46,10 @@ def login():
         prompt="consent"
     )
     session["oauth_state"] = state
+    mode = request.args.get("mode")
+    navigate = request.args.get("navigate")
+    if (mode and mode.lower() in ("redirect", "navigate")) or navigate == "1":
+        return redirect(auth_url)
     return jsonify({"auth_url": auth_url})
 
 @auth_bp.route("/callback", methods=["GET"])
@@ -91,11 +99,28 @@ def callback():
         session["user_email"] = user.email
         session["user_name"] = user.username
 
-        # Redirigir al frontend
-        frontend_url = os.getenv("FRONTEND_URL")
-        if frontend_url:
-            return redirect(f"{frontend_url}/?login=success")
-        return redirect("/?login=success")
+        # Redirigir al frontend (cliente) con HTML/JS para mejorar compatibilidad móvil
+        frontend_url = os.getenv("FRONTEND_URL") or ""
+        target = (frontend_url.rstrip("/") or "") + "/?login=success"
+        html = f"""
+        <!DOCTYPE html>
+        <html lang=\"es\">
+        <head>
+          <meta charset=\"utf-8\" />
+          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+          <title>Iniciando sesión…</title>
+          <meta http-equiv=\"refresh\" content=\"0;url={target}\" />
+          <script>
+            // Fallback JS redirect
+            window.location.replace('{target}');
+          </script>
+        </head>
+        <body>
+          <p>Inicio de sesión correcto. Si no eres redirigido, haz clic <a href=\"{target}\">aquí</a>.</p>
+        </body>
+        </html>
+        """
+        return html
 
     except Exception as e:
         msg_encoded = quote(str(e))
@@ -105,8 +130,25 @@ def callback():
                 return redirect(f"{frontend_url}/?login=success")
             return redirect("/?login=success")
         if frontend_url:
-            return redirect(f"{frontend_url}/?login=error&message={msg_encoded}")
-        return redirect(f"/?login=error&message={msg_encoded}")
+            target = f"{frontend_url.rstrip('/')}/?login=error&message={msg_encoded}"
+        else:
+            target = f"/?login=error&message={msg_encoded}"
+        html = f"""
+        <!DOCTYPE html>
+        <html lang=\"es\">
+        <head>
+          <meta charset=\"utf-8\" />
+          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+          <title>Error de autenticación</title>
+          <meta http-equiv=\"refresh\" content=\"0;url={target}\" />
+          <script>window.location.replace('{target}');</script>
+        </head>
+        <body>
+          <p>No se pudo iniciar sesión. Continúa <a href=\"{target}\">aquí</a>.</p>
+        </body>
+        </html>
+        """
+        return html
 
 @auth_bp.route("/logout", methods=["POST"])
 def logout():
