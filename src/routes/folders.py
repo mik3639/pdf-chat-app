@@ -3,7 +3,6 @@ from flask_cors import cross_origin
 from src.models.user import User, Folder, db
 from src.google_drive import (
     create_drive_folder,
-    delete_drive_folder,
     list_drive_folders,
     list_pdfs_in_folder,
     get_file_metadata,
@@ -162,13 +161,6 @@ def delete_folder(folder_id):
     folder = Folder.query.get(folder_id)
     if not folder or folder.user_id != user_id:
         return jsonify({"error": "No autorizado"}), 403
-
-    # Eliminar carpeta de Google Drive si existe
-    if folder.drive_folder_id:
-        user = User.query.get(user_id)
-        deleted = delete_drive_folder(user, folder.drive_folder_id)
-        if not deleted:
-            return jsonify({"error": "Error al eliminar carpeta en Google Drive"}), 500
 
     # Eliminar de DB
     db.session.delete(folder)
