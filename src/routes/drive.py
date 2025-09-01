@@ -38,28 +38,20 @@ def drive_status():
 @drive_bp.route("/auth", methods=["GET"])
 @cross_origin(supports_credentials=True)
 def drive_auth():
-    # Si es navegación directa (no fetch), redirige a Google inmediatamente.
-    accept = request.headers.get("Accept", "")
-    sec_fetch_mode = request.headers.get("Sec-Fetch-Mode", "")
-    wants_redirect = (
-        request.args.get("redirect") == "1"
-        or "text/html" in accept
-        or sec_fetch_mode == "navigate"
+    # Por defecto: navegar (redirigir) al consentimiento de Google.
+    # Solo devolver JSON cuando ?ajax=1
+    if request.args.get("ajax") == "1":
+        return auth_login()
+
+    flow = Flow.from_client_config(client_config, scopes=SCOPES)
+    flow.redirect_uri = GOOGLE_REDIRECT_URI
+    auth_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
     )
-
-    if wants_redirect:
-        flow = Flow.from_client_config(client_config, scopes=SCOPES)
-        flow.redirect_uri = GOOGLE_REDIRECT_URI
-        auth_url, state = flow.authorization_url(
-            access_type="offline",
-            include_granted_scopes="true",
-            prompt="consent",
-        )
-        session["oauth_state"] = state
-        return redirect(auth_url)
-
-    # Caso AJAX: devolver { auth_url }
-    return auth_login()
+    session["oauth_state"] = state
+    return redirect(auth_url)
 
 @drive_bp.route("/import-folder", methods=["POST", "OPTIONS"])
 @cross_origin(supports_credentials=True)

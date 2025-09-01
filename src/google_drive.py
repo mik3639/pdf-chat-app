@@ -60,34 +60,90 @@ def delete_drive_file(user, file_id):
         return False
 
 def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
-    """Lista carpetas de Drive del usuario. Si parent_id es None, usa 'root'."""
+    """Lista carpetas de Drive del usuario. Si parent_id es None, usa 'root'.
+    - parent_id='any' habilita búsqueda global (sin restricción de padre).
+    - Si query_text viene, se hace búsqueda insensible a mayúsculas/minúsculas.
+    """
     service = get_drive_service(user)
-    q_parts = ["mimeType = 'application/vnd.google-apps.folder'", "trashed = false"]
-    # Permitir búsqueda global cuando parent_id == 'any'
+
+    # Configurar si usamos filtro por padre
     use_parent = True
     if parent_id is None:
         parent_id = 'root'
     if isinstance(parent_id, str) and parent_id.lower() == 'any':
         use_parent = False
-    if use_parent and parent_id:
-        q_parts.append(f"'{parent_id}' in parents")
-    if query_text:
-        # Búsqueda por nombre (contains) escapando comillas simples
-        safe = query_text.replace("'", "\\'")
-        q_parts.append(f"name contains '{safe}'")
-    q = ' and '.join(q_parts)
-    try:
-        results = service.files().list(
-            q=q,
-            spaces='drive',
-            fields="files(id, name)",
-            pageSize=page_size,
-            orderBy='name_natural'
-        ).execute()
-        return results.get('files', [])
-    except HttpError as error:
-        print(f"Error listando carpetas en Drive: {error}")
-        return []
+
+    # Si no hay query, hacer una sola consulta (más eficiente)
+    if not query_text:
+        q_parts = ["mimeType = 'application/vnd.google-apps.folder'", "trashed = false"]
+        if use_parent and parent_id:
+            q_parts.append(f"'{parent_id}' in parents")
+        q = ' and '.join(q_parts)
+        try:
+            results = service.files().list(
+                q=q,
+                spaces='drive',
+                fields="files(id, name)",
+                pageSize=page_size,
+                orderBy='name_natural'
+            ).execute()
+            return results.get('files', [])
+        except HttpError as error:
+            print(f"Error listando carpetas en Drive: {error}")
+            return []
+
+    # Con query: intentar case-insensitive.
+    # 1) Consultas con variantes de capitalización
+    text_variants = []
+    base = query_text.strip()
+    if base:
+        text_variants = list({
+            base,
+            base.lower(),
+            base.upper(),
+            base.title(),
+        })
+    else:
+        text_variants = [""]
+
+    # 2) Ejecutar múltiples consultas y fusionar resultados por id
+    combined = {}
+    remaining = page_size
+    for tv in text_variants:
+        if remaining <= 0:
+            break
+        q_parts = ["mimeType = 'application/vnd.google-apps.folder'", "trashed = false"]
+        if use_parent and parent_id:
+            q_parts.append(f"'{parent_id}' in parents")
+        if tv:
+            safe = tv.replace("'", "\\'")
+            q_parts.append(f"name contains '{safe}'")
+        q = ' and '.join(q_parts)
+        try:
+            results = service.files().list(
+                q=q,
+                spaces='drive',
+                fields="files(id, name)",
+                pageSize=min(remaining, page_size),
+                orderBy='name_natural'
+            ).execute()
+            for f in results.get('files', []):
+                fid = f.get('id')
+                if fid and fid not in combined:
+                    combined[fid] = f
+                    remaining -= 1
+                    if remaining <= 0:
+                        break
+        except HttpError as error:
+            print(f"Error listando carpetas en Drive (variant): {error}")
+            continue
+
+    # 3) Filtro final case-insensitive por si el API fue case-sensitive
+    ql = base.lower()
+    out = [f for f in combined.values() if ql in (f.get('name') or '').lower()]
+    # Ordenar por name_natural-like (simple: nombre lower)
+    out.sort(key=lambda x: (x.get('name') or '').lower())
+    return out[:page_size]
 
 def list_pdfs_in_folder(user, folder_id, page_size=200):
     """Lista archivos PDF dentro de una carpeta de Drive."""
