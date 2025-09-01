@@ -15,6 +15,7 @@ from src.google_drive import (
     get_file_metadata,
     list_pdfs_in_folder,
     download_file_to_path,
+    upload_file_to_drive,
 )
 
 # Reutiliza utilidades de PDFs (ya las tienes)
@@ -135,6 +136,16 @@ def import_folder():
     if deleted_count:
         db.session.commit()
 
+    # Subir a Drive los PDFs locales que no tienen drive_file_id (sincronización bidireccional)
+    pushed_count = 0
+    for p in folder.pdfs:
+        if not p.drive_file_id:
+            new_id = upload_file_to_drive(user, drive_folder_id, p.file_path, filename=p.original_filename)
+            if new_id:
+                p.drive_file_id = new_id
+                db.session.commit()
+                pushed_count += 1
+
     imported_count = 0
     updated_count = 0
     for f in drive_files:
@@ -198,8 +209,17 @@ def import_folder():
         db.session.commit()
         imported_count += 1
 
+    # Actualizar marca de tiempo de última sincronización
+    try:
+        from datetime import datetime
+        folder.last_drive_sync_at = datetime.utcnow()
+        db.session.commit()
+    except Exception:
+        pass
+
     resp = folder.to_dict()
     resp["imported_count"] = imported_count
     resp["updated_count"] = updated_count
     resp["deleted_count"] = deleted_count
+    resp["pushed_count"] = pushed_count
     return jsonify(resp), 200
