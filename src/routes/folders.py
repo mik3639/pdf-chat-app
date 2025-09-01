@@ -192,8 +192,8 @@ def drive_list_folders():
         return jsonify({"error": "Usuario no encontrado"}), 404
     parent_id = request.args.get("parentId")
     q = request.args.get("q")
-    # limit opcional (default 20). Soporta 'all' o -1 para sin límite
-    raw_limit = request.args.get("limit", "20")
+    # limit opcional (default: all). Soporta 'all' o -1 para sin límite
+    raw_limit = request.args.get("limit", "all")
     try:
         if isinstance(raw_limit, str) and raw_limit.lower() == "all":
             limit = -1

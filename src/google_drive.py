@@ -59,7 +59,7 @@ def delete_drive_file(user, file_id):
         print(f"Error al eliminar archivo en Drive: {error}")
         return False
 
-def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
+def list_drive_folders(user, parent_id=None, query_text=None, page_size=100, order_by: str = "modifiedTime desc"):
     """Lista carpetas de Drive del usuario. Si parent_id es None, usa 'root'.
     - parent_id='any' habilita búsqueda global (sin restricción de padre).
     - Si query_text viene, se hace búsqueda insensible a mayúsculas/minúsculas.
@@ -89,9 +89,9 @@ def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
                 resp = service.files().list(
                     q=q,
                     spaces='drive',
-                    fields="nextPageToken, files(id, name)",
+                    fields="nextPageToken, files(id, name, modifiedTime)",
                     pageSize=req_size,
-                    orderBy='name_natural',
+                    orderBy=order_by,
                     pageToken=page_token,
                 ).execute()
                 batch = resp.get('files', [])
@@ -142,9 +142,9 @@ def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
                 resp = service.files().list(
                     q=q,
                     spaces='drive',
-                    fields="nextPageToken, files(id, name)",
+                    fields="nextPageToken, files(id, name, modifiedTime)",
                     pageSize=req_size,
-                    orderBy='name_natural',
+                    orderBy=order_by,
                     pageToken=page_token,
                 ).execute()
                 for f in resp.get('files', []):
@@ -167,8 +167,15 @@ def list_drive_folders(user, parent_id=None, query_text=None, page_size=100):
     # 3) Filtro final case-insensitive por si el API fue case-sensitive
     ql = base.lower()
     out = [f for f in combined.values() if ql in (f.get('name') or '').lower()]
-    # Ordenar por name_natural-like (simple: nombre lower)
-    out.sort(key=lambda x: (x.get('name') or '').lower())
+    # Orden de respaldo según 'order_by' cuando el API no garantice completamente la mezcla de variantes
+    if order_by.strip().lower() == "modifiedtime desc":
+        out.sort(key=lambda x: x.get('modifiedTime') or '', reverse=True)
+    elif order_by.strip().lower() == "modifiedtime":
+        out.sort(key=lambda x: x.get('modifiedTime') or '')
+    elif order_by.strip().lower() == "name desc":
+        out.sort(key=lambda x: (x.get('name') or '').lower(), reverse=True)
+    else:
+        out.sort(key=lambda x: (x.get('name') or '').lower())
     if page_size == -1:
         return out
     return out[:page_size]
