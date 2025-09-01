@@ -8,6 +8,13 @@ class SimpleAIService:
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
         self.openai_api_base = os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1')
         self.gemini_api_key = os.getenv('GEMINI_API_KEY')
+        # Permitir configurar el modelo de Gemini por .env
+        # Valores válidos comunes: gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro, y sus sufijos -latest
+        self.gemini_model = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash').strip()
+        # Version de API: 'v1' o 'v1beta'
+        self.gemini_api_version = os.getenv('GEMINI_API_VERSION', 'v1beta').strip()
+        # Enviar API key por header como en el curl de muestra
+        self.gemini_use_header_key = True
     
     def generate_response(self, question, context, conversation_history=None):
         """Genera una respuesta usando el proveedor de IA configurado"""
@@ -106,16 +113,24 @@ Reglas importantes:
         
         full_prompt += f"PREGUNTA DEL USUARIO: {question}\n\nRESPUESTA:"
         
-        # Llamar a Gemini usando requests (v1 estable)
-        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key={self.gemini_api_key}"
+        # Llamar a Gemini usando requests (compatible con curl de muestra)
+        model = self.gemini_model
+        base = f"https://generativelanguage.googleapis.com/{self.gemini_api_version}"
+        # Si usamos header para la API key, no la añadimos en la query
+        if self.gemini_use_header_key:
+            url = f"{base}/models/{model}:generateContent"
+        else:
+            url = f"{base}/models/{model}:generateContent?key={self.gemini_api_key}"
         
         headers = {
             'Content-Type': 'application/json'
         }
+        if self.gemini_use_header_key:
+            headers['X-goog-api-key'] = self.gemini_api_key
         
+        # Estructura de contents como en el ejemplo de curl (sin 'role')
         data = {
             'contents': [{
-                'role': 'user',
                 'parts': [{
                     'text': full_prompt
                 }]
@@ -127,7 +142,7 @@ Reglas importantes:
         }
         
         response = requests.post(url, headers=headers, json=data, timeout=30)
-        
+
         if response.status_code == 200:
             result = response.json()
             if 'candidates' in result and len(result['candidates']) > 0:
@@ -135,13 +150,34 @@ Reglas importantes:
             else:
                 return "No se pudo generar una respuesta con Gemini."
         else:
-            return f"Error en la API de Gemini: {response.status_code}"
+            # Si hay 404 con alias '-latest', intentar sin '-latest' como fallback
+            if response.status_code == 404 and model.endswith('-latest'):
+                try:
+                    fallback_model = model.replace('-latest', '')
+                    if self.gemini_use_header_key:
+                        fallback_url = f"{base}/models/{fallback_model}:generateContent"
+                    else:
+                        fallback_url = f"{base}/models/{fallback_model}:generateContent?key={self.gemini_api_key}"
+                    fallback_resp = requests.post(fallback_url, headers=headers, json=data, timeout=30)
+                    if fallback_resp.status_code == 200:
+                        result = fallback_resp.json()
+                        if 'candidates' in result and len(result['candidates']) > 0:
+                            return result['candidates'][0]['content']['parts'][0]['text']
+                    # Si el fallback también falla, devolver detalle
+                    return (
+                        f"Error en la API de Gemini (fallback {fallback_model}): "
+                        f"{fallback_resp.status_code} - {fallback_resp.text}"
+                    )
+                except Exception as e:
+                    return f"Error en la API de Gemini (fallback): {str(e)}"
+            # Incluir el cuerpo de respuesta para mejor diagnóstico
+            return f"Error en la API de Gemini: {response.status_code} - {response.text}"
     
     def get_provider_info(self):
         """Retorna información sobre el proveedor de IA actual"""
         return {
             'provider': self.provider,
-            'model': 'gpt-4o-mini' if self.provider == 'openai' else 'gemini-1.5-flash-latest',
+            'model': 'gpt-4o-mini' if self.provider == 'openai' else self.gemini_model,
             'configured': (self.provider == 'openai' and bool(self.openai_api_key)) or 
                          (self.provider == 'gemini' and bool(self.gemini_api_key))
         }
