@@ -19,7 +19,6 @@ from src.routes.auth import auth_bp
 from src.routes.folders import folders_bp
 from src.routes.pdfs import pdfs_bp
 from src.routes.chat import chat_bp
-from src.routes.drive import drive_bp
 from authlib.integrations.flask_client import OAuth
 
 def create_app():
@@ -94,7 +93,12 @@ def create_app():
     app.register_blueprint(folders_bp, url_prefix="/api")
     app.register_blueprint(pdfs_bp, url_prefix="/api")
     app.register_blueprint(chat_bp, url_prefix="/api")
-    app.register_blueprint(drive_bp, url_prefix="/api/drive")
+    # Registrar Drive con import local seguro para evitar NameError en despliegue
+    try:
+        from src.routes.drive import drive_bp as _drive_bp
+        app.register_blueprint(_drive_bp, url_prefix="/api/drive")
+    except Exception as e:
+        print(f"[Init] Aviso: no se pudo registrar drive_bp: {e}")
 
     # Middleware para manejar correctamente los encabezados detrás de un proxy
     app.wsgi_app = ProxyFix(
