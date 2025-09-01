@@ -193,12 +193,9 @@ def drive_list_folders():
     parent_id = request.args.get("parentId")
     q = request.args.get("q")
     # Política de límite:
-    # - Con búsqueda (q no vacío): SIEMPRE 'all' para buscar en todas las carpetas
-    # - Sin búsqueda: usar ?limit si viene, o 5 por defecto
-    if q and q.strip():
-        raw_limit = "all"
-    else:
-        raw_limit = request.args.get("limit", "5")
+    # - Mostrar TODAS por defecto (sin límite) para navegación y para búsqueda
+    # - Se puede acotar con ?limit=<n>
+    raw_limit = request.args.get("limit", "all")
     try:
         if isinstance(raw_limit, str) and raw_limit.lower() == "all":
             limit = -1
