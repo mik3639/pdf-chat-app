@@ -1,5 +1,6 @@
 import os
 from flask import Blueprint, request, jsonify, session, redirect
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from google.auth.transport import requests
 from google.oauth2 import id_token
 from google_auth_oauthlib.flow import Flow
@@ -11,6 +12,22 @@ auth_bp = Blueprint("auth", __name__)
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+SECRET_KEY = os.getenv("SECRET_KEY", "clave-secreta-por-defecto-cambiar-en-produccion")
+
+# Token helpers (fallback sin cookies)
+_serializer = URLSafeTimedSerializer(SECRET_KEY, salt="auth-token")
+
+def create_access_token(payload: dict, expires_in_seconds: int = 3600) -> str:
+    data = dict(payload)
+    data["exp"] = expires_in_seconds  # marker; verificación por edad en loads
+    return _serializer.dumps(data)
+
+def verify_access_token(token: str, max_age_seconds: int = 3600):
+    try:
+        data = _serializer.loads(token, max_age=max_age_seconds)
+        return data
+    except (BadSignature, SignatureExpired):
+        return None
 
 client_config = {
     "web": {
@@ -99,9 +116,16 @@ def callback():
         session["user_email"] = user.email
         session["user_name"] = user.username
 
+        # Generar access token (para móviles con bloqueo de cookies)
+        access_token = create_access_token({
+            "user_id": user.id,
+            "email": user.email,
+            "name": user.username,
+        }, expires_in_seconds=3600)
+
         # Redirigir al frontend (cliente) con HTML/JS para mejorar compatibilidad móvil
         frontend_url = os.getenv("FRONTEND_URL") or ""
-        target = (frontend_url.rstrip("/") or "") + "/?login=success"
+        target = (frontend_url.rstrip("/") or "") + f"/?login=success#access_token={access_token}"
         html = f"""
         <!DOCTYPE html>
         <html lang=\"es\">

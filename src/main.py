@@ -10,7 +10,7 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # Importaciones después de configurar el path
-from flask import Flask, jsonify, send_from_directory, request
+from flask import Flask, jsonify, send_from_directory, request, session
 from flask_cors import CORS
 from flask_session import Session
 from src.models.user import db
@@ -20,6 +20,7 @@ from src.routes.folders import folders_bp
 from src.routes.pdfs import pdfs_bp
 from src.routes.chat import chat_bp
 from authlib.integrations.flask_client import OAuth
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 def create_app():
     # Crear aplicación Flask
@@ -99,6 +100,38 @@ def create_app():
         app.register_blueprint(_drive_bp, url_prefix="/api/drive")
     except Exception as e:
         print(f"[Init] Aviso: no se pudo registrar drive_bp: {e}")
+
+    # ====== Autenticación por token (fallback móvil sin cookies) ======
+    SECRET_KEY = app.config["SECRET_KEY"]
+    _serializer = URLSafeTimedSerializer(SECRET_KEY, salt="auth-token")
+
+    @app.before_request
+    def bearer_token_auth():
+        # Si ya hay sesión, no hacer nada
+        if session.get("user_id"):
+            return None
+        # Solo proteger rutas de API
+        if not request.path.startswith("/api/"):
+            return None
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return None
+        token = auth.split(" ", 1)[1].strip()
+        if not token:
+            return None
+        try:
+            data = _serializer.loads(token, max_age=3600)
+        except (BadSignature, SignatureExpired):
+            return None
+        # Poblar sesión para este request
+        uid = data.get("user_id")
+        if uid:
+            session["user_id"] = uid
+            if data.get("email"):
+                session["user_email"] = data.get("email")
+            if data.get("name"):
+                session["user_name"] = data.get("name")
+        return None
 
     # Middleware para manejar correctamente los encabezados detrás de un proxy
     app.wsgi_app = ProxyFix(
