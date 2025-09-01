@@ -49,19 +49,27 @@ def create_app():
     # Inicializar extensiones
     db.init_app(app)
     Session(app)
-    # Configurar CORS (normalizando FRONTEND_URL para evitar slash final)
+    # Configurar CORS (normalizando FRONTEND_URL para evitar slash final) y asegurar que los preflight incluyan headers
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    allowed_origins = [
+        frontend_url,
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://pdf-chat-frontend-v9ud.onrender.com",
+    ]
     CORS(
         app,
         supports_credentials=True,
-        origins=[
-            frontend_url,
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "https://pdf-chat-frontend-v9ud.onrender.com"
-        ],
-        allow_headers=["Content-Type", "Authorization"],
-        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        resources={
+            r"/api/*": {
+                "origins": allowed_origins,
+                "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                "expose_headers": ["Content-Type"],
+            }
+        },
+        vary_header=True,
+        always_send=True,
     )
 
     # Configurar OAuth
@@ -85,6 +93,7 @@ def create_app():
     app.register_blueprint(folders_bp, url_prefix="/api")
     app.register_blueprint(pdfs_bp, url_prefix="/api")
     app.register_blueprint(chat_bp, url_prefix="/api")
+    app.register_blueprint(drive_bp, url_prefix="/api/drive")
 
     # Middleware para manejar correctamente los encabezados detrás de un proxy
     app.wsgi_app = ProxyFix(
