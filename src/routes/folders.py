@@ -219,13 +219,13 @@ def drive_list_folders():
         # Evitar listar todo el Drive cuando se usa búsqueda global sin término
         if (effective_parent or '').lower() == 'any':
             q_norm = (q or '').strip()
-            if len(q_norm) < 2:
+            if len(q_norm) < 1:
                 return jsonify({
                     "folders": [],
                     "limit": raw_limit,
                     "parentId": effective_parent,
                     "q": q,
-                    "note": "Proporciona al menos 2 caracteres para buscar en todo el Drive"
+                    "note": "Proporciona al menos 1 caracter para buscar en todo el Drive"
                 })
         folders = list_drive_folders(user, parent_id=effective_parent, query_text=q, page_size=limit)
         return jsonify({
