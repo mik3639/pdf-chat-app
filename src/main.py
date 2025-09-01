@@ -82,7 +82,7 @@ def create_app():
         authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
         api_base_url="https://www.googleapis.com/oauth2/v3/",
         client_kwargs={
-            "scope": "openid email profile https://www.googleapis.com/auth/drive.file"
+            "scope": "openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file"
         },
         server_metadata_url="https://accounts.google.com/.well-known/openid-configuration"
     )

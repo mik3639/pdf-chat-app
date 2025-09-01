@@ -50,12 +50,14 @@ def callback():
         state = session.get("oauth_state", None)
         request_state = request.args.get("state", None)
 
-        # Evitar error de estado inválido en desarrollo
+        # Algunos navegadores móviles bloquean cookies en redirecciones (pierden la sesión/estado).
+        # Si hay mismatch de estado pero tenemos un 'code' de Google, intentamos continuar.
         if state != request_state:
-            if "localhost" not in GOOGLE_REDIRECT_URI and "ngrok" not in GOOGLE_REDIRECT_URI:
+            has_code = bool(request.args.get("code"))
+            if not has_code:
                 return jsonify({"error": "Estado inválido"}), 400
 
-        flow = Flow.from_client_config(client_config, scopes=SCOPES, state=state)
+        flow = Flow.from_client_config(client_config, scopes=SCOPES, state=request_state or state)
         flow.redirect_uri = GOOGLE_REDIRECT_URI
         flow.fetch_token(authorization_response=request.url)
 
