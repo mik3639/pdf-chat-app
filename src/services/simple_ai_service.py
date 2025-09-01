@@ -106,8 +106,8 @@ Reglas importantes:
         
         full_prompt += f"PREGUNTA DEL USUARIO: {question}\n\nRESPUESTA:"
         
-        # Llamar a Gemini usando requests
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={self.gemini_api_key}"
+        # Llamar a Gemini usando requests (v1 estable)
+        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key={self.gemini_api_key}"
         
         headers = {
             'Content-Type': 'application/json'
@@ -115,6 +115,7 @@ Reglas importantes:
         
         data = {
             'contents': [{
+                'role': 'user',
                 'parts': [{
                     'text': full_prompt
                 }]
@@ -140,7 +141,7 @@ Reglas importantes:
         """Retorna información sobre el proveedor de IA actual"""
         return {
             'provider': self.provider,
-            'model': 'gpt-4o-mini' if self.provider == 'openai' else 'gemini-pro',
+            'model': 'gpt-4o-mini' if self.provider == 'openai' else 'gemini-1.5-flash-latest',
             'configured': (self.provider == 'openai' and bool(self.openai_api_key)) or 
                          (self.provider == 'gemini' and bool(self.gemini_api_key))
         }
