@@ -10,7 +10,7 @@ class SimpleAIService:
         self.gemini_api_key = os.getenv('GEMINI_API_KEY')
         # Permitir configurar el modelo de Gemini por .env
         # Valores válidos comunes: gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro, y sus sufijos -latest
-        self.gemini_model = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash').strip()
+        self.gemini_model = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash').strip()
         # Version de API: 'v1' o 'v1beta'
         self.gemini_api_version = os.getenv('GEMINI_API_VERSION', 'v1beta').strip()
         # Enviar API key por header como en el curl de muestra
